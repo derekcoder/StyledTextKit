@@ -11,16 +11,29 @@ import UIKit
 
 public class StyledText: Hashable, Equatable {
   
+  public struct ImageFitOptions: OptionSet {
+    public let rawValue: Int
+    
+    public init(rawValue: Int) {
+      self.rawValue = rawValue
+    }
+    
+    public static let fit = ImageFitOptions(rawValue: 1 << 0)
+    public static let center = ImageFitOptions(rawValue: 2 << 0)
+  }
+  
   public enum Storage: Hashable, Equatable {
     case text(String)
     case attributedText(NSAttributedString)
+    case image(UIImage, [ImageFitOptions])
     
     // MARK: Hashable
     
     public func hash(into hasher: inout Hasher) {
       switch self {
-      case .text(let text): text.hash(into: &hasher)
-      case .attributedText(let text): text.hash(into: &hasher)
+      case .text(let text): hasher.combine(text)
+      case .attributedText(let text): hasher.combine(text)
+      case .image(let image, _): hasher.combine(image)
       }
     }
     
@@ -31,16 +44,21 @@ public class StyledText: Hashable, Equatable {
       case .text(let lhsText):
         switch rhs {
         case .text(let rhsText): return lhsText == rhsText
-        case .attributedText: return false
+        case .attributedText, .image: return false
         }
       case .attributedText(let lhsText):
         switch rhs {
-        case .text: return false
+        case .text, .image: return false
         case .attributedText(let rhsText): return lhsText == rhsText
+        }
+      case .image(let lhsImage, let lhsOptions):
+        switch rhs {
+        case .text, .attributedText: return false
+        case .image(let rhsImage, let rhsOptions):
+          return lhsImage == rhsImage && lhsOptions == rhsOptions
         }
       }
     }
-    
   }
   
   public let storage: Storage
@@ -59,12 +77,14 @@ public class StyledText: Hashable, Equatable {
     switch storage {
     case .text(let text): return text
     case .attributedText(let text): return text.string
+    case .image: return ""
     }
   }
   
   internal func render(contentSizeCategory: UIContentSizeCategory) -> NSAttributedString {
     var attributes = style.attributes
-    attributes[.font] = style.font(contentSizeCategory: contentSizeCategory)
+    let font = style.font(contentSizeCategory: contentSizeCategory)
+    attributes[.font] = font
     switch storage {
     case .text(let text): return NSAttributedString(string: text, attributes: attributes)
     case .attributedText(let text):
@@ -78,14 +98,45 @@ public class StyledText: Hashable, Equatable {
         }
       }
       return mutable
+    case .image(let image, let options):
+      let attachment = NSTextAttachment()
+      attachment.image = image
+      
+      var bounds = attachment.bounds
+      let size = image.size
+      if options.contains(.fit) {
+        let ratio = size.width / size.height
+        let fontHeight = min(ceil(font.pointSize), size.height)
+        bounds.size.width = ratio * fontHeight
+        bounds.size.height = fontHeight
+      } else {
+        bounds.size = size
+      }
+      
+      if options.contains(.center) {
+        bounds.origin.y = round((font.capHeight - bounds.height) / 2)
+      }
+      attachment.bounds = bounds
+      
+      // non-breaking space so the color hack doesn't wrap
+      let attributedString = NSMutableAttributedString(string: "\u{00A0}")
+      attributedString.append(NSAttributedString(attachment: attachment))
+      // replace attributes to 0 size font so no actual space taken
+      attributes[.font] = UIFont.systemFont(ofSize: 0)
+      // override all attributes so color actually tints image
+      attributedString.addAttributes(
+        attributes,
+        range: NSRange(location: 0, length: attributedString.length)
+      )
+      return attributedString
     }
   }
   
   // MARK: Hashable
   
   public func hash(into hasher: inout Hasher) {
-    storage.hash(into: &hasher)
-    style.hash(into: &hasher)
+    hasher.combine(storage)
+    hasher.combine(style)
   }
   
   // MARK: Equatable

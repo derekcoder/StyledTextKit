@@ -132,6 +132,15 @@ public final class StyledTextBuilder: Hashable, Equatable {
   }
   
   @discardableResult
+  public func add(
+    image: UIImage,
+    options: [StyledText.ImageFitOptions] = [.fit, .center],
+    attributes: [NSAttributedString.Key: Any]? = nil
+  ) -> StyledTextBuilder {
+    return add(storage: .image(image, options), attributes: attributes)
+  }
+  
+  @discardableResult
   public func clearText() -> StyledTextBuilder {
     guard let tipStyle = styledTexts.last?.style else { return self }
     styledTexts.removeAll()
